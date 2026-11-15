@@ -5,7 +5,11 @@ import { epicycleChain } from '../lib/epicycles'
  * 主画布三合一：
  * 1. 灰色虚线 = 原轮廓
  * 2. 红色曲线 = 前 n 项傅里叶重建（n 变化时快速重描）
- * 3. epicycles 模式 = 旋转圆环连杆动画 + 笔尖拖尾渐隐线（速度可调、可暂停）
+ * 3. epicycles 模式 = 旋转圆环连杆动画 + 笔尖拖尾渐隐线（速度可调、可暂停、可重置）
+ *
+ * 动画循环生命周期绑定 imageKey（换图时重启）；
+ * n / speed / paused 变化只影响每帧绘制内容，不重启循环 —— 暂停不会被 n 滑杆打断。
+ * resetToken 变化时手动重置（清拖尾、相位归零、重新描绘）。
  */
 const TRACE_DURATION_MS = 700
 const BASE_ORBIT_MS = 16000 // speed=1 时笔尖走一圈的时长
@@ -13,13 +17,15 @@ const BASE_ORBIT_MS = 16000 // speed=1 时笔尖走一圈的时长
 export default function CanvasView({
   target, recon, bounds, coeffs, dc, n,
   epicycles, speed = 1, paused = false,
+  imageKey = '', resetToken = 0,
 }) {
   const canvasRef = useRef(null)
   const progressRef = useRef(1)
   const rafRef = useRef(0)
   const tRef = useRef(0)          // epicycles 相位 0~1
   const lastTsRef = useRef(0)
-  const trailRef = useRef([])     // 笔尖拖尾 [{x, y, age}] 归一化坐标
+  const trailRef = useRef([])     // 笔尖拖尾 [{x, y}] 归一化坐标
+  const replayRef = useRef(null)  // 暴露给 resetToken effect 的重置函数
   // 最新 props 存 ref，动画循环与 ResizeObserver 都能读到当前值
   const propsRef = useRef({ target, recon, bounds, coeffs, dc, n, epicycles, speed, paused })
   useEffect(() => {
@@ -60,7 +66,11 @@ export default function CanvasView({
       ctx.lineWidth = 1.5
       ctx.setLineDash([4, 5])
       ctx.beginPath()
-      tgt.forEach((p, i) => (i === 0 ? ctx.moveTo(px(p.x), py(p.y)) : ctx.lineTo(px(p.x), py(p.y))))
+      for (let i = 0; i < tgt.length; i++) {
+        const p = tgt[i]
+        if (i === 0) ctx.moveTo(px(p.x), py(p.y))
+        else ctx.lineTo(px(p.x), py(p.y))
+      }
       ctx.closePath()
       ctx.stroke()
       ctx.restore()
@@ -152,16 +162,19 @@ export default function CanvasView({
       }
     }
 
-    // 主循环：描绘动画 → epicycles 相位推进（暂停时只重绘不推进）
+    const startRef = { current: 0 }
+
+    // 主循环：描绘动画 → epicycles 相位推进（暂停时只重绘不推进、不记拖尾）
     function loop(ts) {
       const { epicycles: epi, paused: pse, speed: spd } = propsRef.current
       if (progressRef.current < 1) {
+        if (!startRef.current) startRef.current = ts
         progressRef.current = Math.min(1, (ts - startRef.current) / TRACE_DURATION_MS)
       } else if (epi && !pse) {
         if (!lastTsRef.current) lastTsRef.current = ts
         const dt = ts - lastTsRef.current
         tRef.current = (tRef.current + (dt * spd) / BASE_ORBIT_MS) % 1
-        // 记录笔尖位置到拖尾
+        // 记录笔尖位置到拖尾（暂停时不记录，保持画面静止）
         const { coeffs: cfs, dc: d0, n: nn } = propsRef.current
         if (cfs && d0) {
           const chain = epicycleChain(cfs, d0, nn, tRef.current)
@@ -175,26 +188,33 @@ export default function CanvasView({
       draw()
       rafRef.current = requestAnimationFrame(loop)
     }
-    const startRef = { current: 0 }
 
+    // 重置：清拖尾、相位归零、重新描绘（暂停状态保持不变）
     function replay() {
       progressRef.current = 0
-      startRef.current = performance.now()
+      startRef.current = 0
       trailRef.current = []
       tRef.current = 0
-      cancelAnimationFrame(rafRef.current)
-      rafRef.current = requestAnimationFrame(loop)
+      lastTsRef.current = 0
     }
 
+    replayRef.current = replay
     replay()
+    rafRef.current = requestAnimationFrame(loop)
 
     const ro = new ResizeObserver(() => draw())
     ro.observe(canvas)
     return () => {
       ro.disconnect()
       cancelAnimationFrame(rafRef.current)
+      replayRef.current = null
     }
-  }, [recon])
+  }, [imageKey])
+
+  // 外部重置按钮：只在 resetToken 变化时触发
+  useEffect(() => {
+    if (resetToken > 0) replayRef.current?.()
+  }, [resetToken])
 
   return <canvas ref={canvasRef} className="main-canvas" />
 }

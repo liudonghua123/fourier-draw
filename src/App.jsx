@@ -25,6 +25,7 @@ export default function App() {
   const [showEpicycles, setShowEpicycles] = useState(true)
   const [epiSpeed, setEpiSpeed] = useState(1)
   const [epiPaused, setEpiPaused] = useState(false)
+  const [resetToken, setResetToken] = useState(0)
   const fileRef = useRef(null)
 
   /** 从 URL 加载并处理图片（本地文件 / 内置示例共用） */
@@ -52,6 +53,7 @@ export default function App() {
         setResult(res)
         setImageName(name)
         setN(8)
+        setResetToken(0)
       } catch (e) {
         console.error(e)
         setError('处理失败：' + e.message)
@@ -266,6 +268,8 @@ export default function App() {
                 epicycles={showEpicycles}
                 speed={epiSpeed}
                 paused={epiPaused}
+                imageKey={imageName}
+                resetToken={resetToken}
               />
               {showEpicycles && (
                 <div className="epi-controls">
@@ -275,6 +279,14 @@ export default function App() {
                     aria-label={epiPaused ? '继续' : '暂停'}
                   >
                     {epiPaused ? '▶ 继续' : '⏸ 暂停'}
+                  </button>
+                  <button
+                    className="btn ghost epi-reset"
+                    onClick={() => setResetToken((v) => v + 1)}
+                    aria-label="重置动画"
+                    title="清空拖尾，从起点重新开始"
+                  >
+                    ↺ 重置
                   </button>
                   <div className="epi-speed">
                     <span className="dim">速度</span>
