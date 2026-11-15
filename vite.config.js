@@ -4,6 +4,8 @@ import { defineConfig } from 'vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // 相对 base：同时兼容 GitHub Pages 子路径与隧道根路径
+  base: './',
   server: {
     port: 5180,
     // 允许通过 Cloudflare Tunnel 域名访问
