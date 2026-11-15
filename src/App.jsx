@@ -8,6 +8,13 @@ import './App.css'
 
 const PRESET_N = [1, 2, 3, 5, 8, 15, 30, 64, 128, 256]
 
+const SAMPLES = [
+  { id: 'pi', label: 'π', desc: '经典开篇', src: './samples/pi.png' },
+  { id: 'e', label: 'e', desc: '自然底数', src: './samples/e.png' },
+  { id: 'omega', label: 'Ω', desc: '谐振终点', src: './samples/omega.png' },
+  { id: 'cat', label: '猫', desc: '卡通头像', src: './samples/cat.png' },
+]
+
 export default function App() {
   const [result, setResult] = useState(null)       // extractContourAndCoeffs 的输出
   const [imageName, setImageName] = useState('')
@@ -17,14 +24,8 @@ export default function App() {
   const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef(null)
 
-  const handleFile = useCallback((file) => {
-    if (!file || !file.type.startsWith('image/')) {
-      setError('请上传图片文件')
-      return
-    }
-    setBusy(true)
-    setError('')
-    const url = URL.createObjectURL(file)
+  /** 从 URL 加载并处理图片（本地文件 / 内置示例共用） */
+  const processImageUrl = useCallback((url, name, cleanup = () => {}) => {
     const img = new Image()
     img.onload = () => {
       try {
@@ -39,30 +40,42 @@ export default function App() {
         ctx.drawImage(img, 0, 0, w, h)
         const data = ctx.getImageData(0, 0, w, h)
 
-        const res = extractContourAndCoeffs(data, { maxDim: 220, samples: 512 })
+        const res = extractContourAndCoeffs(data, { samples: 512 })
         if (!res || res.coeffs.length < 2) {
           setError('未能识别出清晰主体，换一张主体突出的图试试')
           setBusy(false)
           return
         }
         setResult(res)
-        setImageName(file.name)
+        setImageName(name)
         setN(8)
       } catch (e) {
         console.error(e)
         setError('处理失败：' + e.message)
       } finally {
-        URL.revokeObjectURL(url)
+        cleanup()
         setBusy(false)
       }
     }
     img.onerror = () => {
       setError('图片加载失败')
-      URL.revokeObjectURL(url)
+      cleanup()
       setBusy(false)
     }
     img.src = url
   }, [])
+
+  const handleFile = useCallback((file) => {
+    if (!file) return
+    if (!file.type || !file.type.startsWith('image/')) {
+      setError('请上传图片文件')
+      return
+    }
+    setBusy(true)
+    setError('')
+    const url = URL.createObjectURL(file)
+    processImageUrl(url, file.name, () => URL.revokeObjectURL(url))
+  }, [processImageUrl])
 
   const onDrop = useCallback((e) => {
     e.preventDefault()
@@ -143,6 +156,38 @@ export default function App() {
           </motion.section>
         )}
       </AnimatePresence>
+
+      {/* 内置示例 */}
+      {!result && (
+        <motion.section
+          className="samples"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25, duration: 0.5, ease: 'easeOut' }}
+        >
+          <p className="samples-title">或者试试内置示例：</p>
+          <div className="samples-row">
+            {SAMPLES.map((s) => (
+              <motion.button
+                key={s.id}
+                className="sample-card"
+                onClick={() => {
+                  setBusy(true)
+                  setError('')
+                  processImageUrl(s.src, `示例 · ${s.label}`)
+                }}
+                whileHover={{ y: -5, scale: 1.04 }}
+                whileTap={{ scale: 0.95 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 22 }}
+              >
+                <img src={s.src} alt={s.label} loading="lazy" draggable={false} />
+                <span className="sample-label">{s.label}</span>
+                <span className="sample-desc">{s.desc}</span>
+              </motion.button>
+            ))}
+          </div>
+        </motion.section>
+      )}
 
       {/* 结果区 */}
       {result && (
