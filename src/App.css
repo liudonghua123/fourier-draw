@@ -281,6 +281,65 @@ body {
   font-weight: 700;
 }
 
+/* ---------- 公式区 ---------- */
+.formulas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 20px;
+  margin-bottom: 18px;
+}
+.formula-item { display: flex; flex-direction: column; gap: 4px; }
+.formula-label {
+  font-size: 0.72rem;
+  color: var(--ink-dim);
+  letter-spacing: 0.05em;
+}
+.formula {
+  font-size: 0.92rem;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.formula::-webkit-scrollbar { display: none; }
+.formula-main { font-size: 1.05rem; font-weight: 700; }
+.formula sub, .formula sup { font-size: 0.62em; }
+
+/* ---------- epicycles 开关 ---------- */
+.head-right { display: flex; align-items: center; gap: 12px; }
+.epi-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  user-select: none;
+}
+.epi-toggle input { display: none; }
+.epi-track {
+  width: 34px;
+  height: 19px;
+  border-radius: 999px;
+  background: rgba(60, 66, 90, 0.2);
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.epi-toggle input:checked + .epi-track { background: var(--accent); }
+.epi-thumb {
+  position: absolute;
+  top: 2.5px;
+  left: 2.5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  transition: transform 0.2s;
+}
+.epi-toggle input:checked + .epi-track .epi-thumb { transform: translateX(15px); }
+.epi-label { font-size: 0.8rem; color: var(--ink-dim); }
+.epi-hint { margin-top: 10px; }
+
 /* ---------- 频谱 ---------- */
 .side-panel { display: flex; flex-direction: column; }
 .spectrum {

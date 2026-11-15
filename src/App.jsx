@@ -22,6 +22,7 @@ export default function App() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [showEpicycles, setShowEpicycles] = useState(true)
   const fileRef = useRef(null)
 
   /** 从 URL 加载并处理图片（本地文件 / 内置示例共用） */
@@ -207,25 +208,66 @@ export default function App() {
             <Slider n={n} setN={setN} max={maxN} />
           </section>
 
+          {/* 公式区 */}
+          <section className="panel formulas">
+            <div className="formula-item">
+              <span className="formula-label">轮廓视为复数序列</span>
+              <span className="formula mono">z(t) = x(t) + i·y(t)</span>
+            </div>
+            <div className="formula-item">
+              <span className="formula-label">傅里叶级数</span>
+              <span className="formula mono accent formula-main">
+                z(t) = Σ<sub>k=-∞</sub><sup>+∞</sup> c<sub>k</sub>·e<sup>ikt</sup>
+              </span>
+            </div>
+            <div className="formula-item">
+              <span className="formula-label">取前 n 项重建</span>
+              <span className="formula mono">z<sub>n</sub>(t) = c<sub>0</sub> + Σ<sub>k=1</sub><sup>n</sup> c<sub>k</sub>·e<sup>ikt</sup></span>
+            </div>
+            <div className="formula-item">
+              <span className="formula-label">误差上界</span>
+              <span className="formula mono">error ≤ Σ<sub>k left out</sub> |c<sub>k</sub>|</span>
+            </div>
+          </section>
+
           <section className="grid">
             <div className="panel canvas-panel">
               <div className="panel-head">
                 <h2>重建 · N = <span className="mono accent">{n}</span></h2>
-                <motion.span
-                  key={mainError}
-                  className="badge"
-                  initial={{ scale: 0.9, opacity: 0.4 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                >
-                  error = {(mainError * 100).toFixed(2)}%
-                </motion.span>
+                <div className="head-right">
+                  <label className="epi-toggle">
+                    <input
+                      type="checkbox"
+                      checked={showEpicycles}
+                      onChange={(e) => setShowEpicycles(e.target.checked)}
+                    />
+                    <span className="epi-track"><span className="epi-thumb" /></span>
+                    <span className="epi-label">旋转圆环</span>
+                  </label>
+                  <motion.span
+                    key={mainError}
+                    className="badge"
+                    initial={{ scale: 0.9, opacity: 0.4 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                  >
+                    error = {(mainError * 100).toFixed(2)}%
+                  </motion.span>
+                </div>
               </div>
               <CanvasView
                 target={result.contour}
                 recon={mainRecon}
                 bounds={result.bounds}
+                coeffs={result.coeffs}
+                dc={result.dc}
                 n={n}
+                epicycles={showEpicycles}
               />
+              <p className="hint epi-hint">
+                {showEpicycles
+                  ? '每个系数是一个旋转的圆 —— 圆套圆，笔尖（橙点）画出轮廓。低频圆大、高频圆小。'
+                  : '开启「旋转圆环」观看圆环连杆如何一笔画出轮廓。'}
+              </p>
             </div>
 
             <div className="panel side-panel">
@@ -264,7 +306,7 @@ export default function App() {
 /** |c_k| 频谱条形图，n 以内高亮 */
 function Spectrum({ coeffs, n }) {
   const shown = coeffs.slice(0, 48)
-  const maxMag = shown[0]?.origMag || 1
+  const maxMag = shown[0]?.mag || 1
   return (
     <div className="spectrum">
       {shown.map((c, i) => (
@@ -272,9 +314,9 @@ function Spectrum({ coeffs, n }) {
           key={c.k}
           className={`bar ${i < n ? 'on' : ''}`}
           initial={{ height: 0 }}
-          animate={{ height: `${Math.max(2, (c.origMag / maxMag) * 100)}%` }}
+          animate={{ height: `${Math.max(2, (c.mag / maxMag) * 100)}%` }}
           transition={{ duration: 0.5, delay: i * 0.01, ease: 'easeOut' }}
-          title={`k=${c.k}  |c|=${c.origMag.toFixed(3)}`}
+          title={`k=${c.k}  |c|=${c.mag.toFixed(3)}`}
         />
       ))}
     </div>
