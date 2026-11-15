@@ -23,6 +23,8 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [showEpicycles, setShowEpicycles] = useState(true)
+  const [epiSpeed, setEpiSpeed] = useState(1)
+  const [epiPaused, setEpiPaused] = useState(false)
   const fileRef = useRef(null)
 
   /** 从 URL 加载并处理图片（本地文件 / 内置示例共用） */
@@ -262,22 +264,55 @@ export default function App() {
                 dc={result.dc}
                 n={n}
                 epicycles={showEpicycles}
+                speed={epiSpeed}
+                paused={epiPaused}
               />
+              {showEpicycles && (
+                <div className="epi-controls">
+                  <button
+                    className="btn ghost epi-play"
+                    onClick={() => setEpiPaused((v) => !v)}
+                    aria-label={epiPaused ? '继续' : '暂停'}
+                  >
+                    {epiPaused ? '▶ 继续' : '⏸ 暂停'}
+                  </button>
+                  <div className="epi-speed">
+                    <span className="dim">速度</span>
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="4"
+                      step="0.1"
+                      value={epiSpeed}
+                      onChange={(e) => setEpiSpeed(parseFloat(e.target.value))}
+                      style={{ '--pct': `${((epiSpeed - 0.1) / 3.9) * 100}%` }}
+                    />
+                    <span className="mono epi-speed-val">{epiSpeed.toFixed(1)}×</span>
+                  </div>
+                </div>
+              )}
               <p className="hint epi-hint">
                 {showEpicycles
-                  ? '每个系数是一个旋转的圆 —— 圆套圆，笔尖（橙点）画出轮廓。低频圆大、高频圆小。'
+                  ? '金色拖尾 = 笔尖刚刚走过的点连成的线；它叠加成红色轮廓。圆越大 = 这层谐波越重要。'
                   : '开启「旋转圆环」观看圆环连杆如何一笔画出轮廓。'}
               </p>
             </div>
 
             <div className="panel side-panel">
               <div className="panel-head">
-                <h2>系数谱 |c<sub>k</sub>|</h2>
+                <h2>系数谱 · 谁在画这笔画？</h2>
               </div>
-              <Spectrum coeffs={result.coeffs} n={n} />
-              <p className="hint">
-                前几个系数携带绝大部分形状信息 —— 这就是傅里叶级数做轮廓压缩的原理。
-              </p>
+              <Spectrum coeffs={result.coeffs} n={n} onPick={setN} max={maxN} />
+              <div className="spectrum-legend">
+                <p className="hint">
+                  把轮廓拆成一层层旋转的圆：<strong>圆越大，这个圆对形状的贡献越大</strong>。
+                  画图时只用前 <strong className="accent">{Math.min(n, maxN)}</strong> 个圆（亮色），
+                  后面的都被扔掉 —— 扔得越多，丢失的细节越多。
+                </p>
+                <p className="hint">
+                  点击任意柱子可以设定使用前几个圆试试看。
+                </p>
+              </div>
             </div>
           </section>
 
@@ -303,22 +338,60 @@ export default function App() {
   )
 }
 
-/** |c_k| 频谱条形图，n 以内高亮 */
-function Spectrum({ coeffs, n }) {
-  const shown = coeffs.slice(0, 48)
+/**
+ * 系数谱（初学者友好版）：
+ * - 条高 = |c_k|（圆的半径），条越高圆越大
+ * - 前几项高亮显示当前用了几个圆
+ * - 头部显示"能量占比"：前 n 项贡献了多少形状信息
+ * - 点击柱子设定 n；悬停显示该圆的半径与速度
+ */
+function Spectrum({ coeffs, n, onPick, max }) {
+  const SHOWN = 40
+  const shown = coeffs.slice(0, SHOWN)
   const maxMag = shown[0]?.mag || 1
+
+  // 能量占比：Σ前n项|c| / Σ全部|c|（粗略但直观）
+  const total = coeffs.reduce((s, c) => s + c.mag, 0) || 1
+  const used = coeffs.slice(0, Math.min(n, coeffs.length)).reduce((s, c) => s + c.mag, 0)
+  const pct = ((used / total) * 100).toFixed(0)
+
   return (
-    <div className="spectrum">
-      {shown.map((c, i) => (
-        <motion.div
-          key={c.k}
-          className={`bar ${i < n ? 'on' : ''}`}
-          initial={{ height: 0 }}
-          animate={{ height: `${Math.max(2, (c.mag / maxMag) * 100)}%` }}
-          transition={{ duration: 0.5, delay: i * 0.01, ease: 'easeOut' }}
-          title={`k=${c.k}  |c|=${c.mag.toFixed(3)}`}
-        />
-      ))}
+    <div className="spectrum-wrap">
+      <div className="spectrum-stat">
+        <div className="spectrum-energy">
+          <div className="spectrum-energy-label">
+            前 <strong className="mono accent">{Math.min(n, coeffs.length)}</strong> 个圆
+            贡献了 <strong className="mono accent">{pct}%</strong> 的形状
+          </div>
+          <div className="spectrum-energy-bar">
+            <motion.div
+              className="spectrum-energy-fill"
+              initial={false}
+              animate={{ width: `${pct}%` }}
+              transition={{ type: 'spring', stiffness: 200, damping: 26 }}
+            />
+          </div>
+        </div>
+      </div>
+      <div className="spectrum">
+        {shown.map((c, i) => (
+          <motion.button
+            key={c.k}
+            className={`bar ${i < n ? 'on' : ''} ${i === n - 1 ? 'edge' : ''}`}
+            initial={{ height: 0 }}
+            animate={{ height: `${Math.max(3, (c.mag / maxMag) * 100)}%` }}
+            transition={{ duration: 0.5, delay: i * 0.012, ease: 'easeOut' }}
+            onClick={() => onPick(Math.max(1, Math.min(max, i + 1)))}
+            title={`第 ${i + 1} 个圆：半径 ${c.mag.toFixed(2)}，转速 ${c.k}×`}
+            aria-label={`设定 N=${i + 1}`}
+          />
+        ))}
+      </div>
+      <div className="spectrum-axis">
+        <span>第1个圆</span>
+        <span>…</span>
+        <span>第{SHOWN}个圆</span>
+      </div>
     </div>
   )
 }

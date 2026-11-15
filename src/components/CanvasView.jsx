@@ -5,22 +5,26 @@ import { epicycleChain } from '../lib/epicycles'
  * 主画布三合一：
  * 1. 灰色虚线 = 原轮廓
  * 2. 红色曲线 = 前 n 项傅里叶重建（n 变化时快速重描）
- * 3. epicycles 模式 = 旋转圆环连杆动画，笔尖沿轨迹移动（可开关）
+ * 3. epicycles 模式 = 旋转圆环连杆动画 + 笔尖拖尾渐隐线（速度可调、可暂停）
  */
 const TRACE_DURATION_MS = 700
-const ORBIT_PERIOD_MS = 12000 // 笔尖走完一圈的时长
+const BASE_ORBIT_MS = 16000 // speed=1 时笔尖走一圈的时长
 
-export default function CanvasView({ target, recon, bounds, coeffs, dc, n, epicycles }) {
+export default function CanvasView({
+  target, recon, bounds, coeffs, dc, n,
+  epicycles, speed = 1, paused = false,
+}) {
   const canvasRef = useRef(null)
   const progressRef = useRef(1)
   const rafRef = useRef(0)
   const tRef = useRef(0)          // epicycles 相位 0~1
   const lastTsRef = useRef(0)
+  const trailRef = useRef([])     // 笔尖拖尾 [{x, y, age}] 归一化坐标
   // 最新 props 存 ref，动画循环与 ResizeObserver 都能读到当前值
-  const propsRef = useRef({ target, recon, bounds, coeffs, dc, n, epicycles })
+  const propsRef = useRef({ target, recon, bounds, coeffs, dc, n, epicycles, speed, paused })
   useEffect(() => {
-    propsRef.current = { target, recon, bounds, coeffs, dc, n, epicycles }
-  }, [target, recon, bounds, coeffs, dc, n, epicycles])
+    propsRef.current = { target, recon, bounds, coeffs, dc, n, epicycles, speed, paused }
+  }, [target, recon, bounds, coeffs, dc, n, epicycles, speed, paused])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -81,10 +85,26 @@ export default function CanvasView({ target, recon, bounds, coeffs, dc, n, epicy
       ctx.stroke()
       ctx.restore()
 
-      // epicycles：旋转圆环连杆 + 笔尖光点
+      // epicycles：拖尾 → 圆环 → 连杆 → 笔尖
       if (epi && cfs && d0 && nn >= 1) {
         const chain = epicycleChain(cfs, d0, nn, tRef.current)
         ctx.save()
+
+        // 笔尖拖尾（渐隐金线）：形象表示"点连成线"
+        const trail = trailRef.current
+        if (trail.length > 2) {
+          for (let i = 1; i < trail.length; i++) {
+            const a = trail[i - 1]
+            const c = trail[i]
+            const alpha = (i / trail.length) * 0.9
+            ctx.strokeStyle = `rgba(255, 176, 58, ${alpha})`
+            ctx.lineWidth = 1.2 + (i / trail.length) * 2
+            ctx.beginPath()
+            ctx.moveTo(px(a.x), py(a.y))
+            ctx.lineTo(px(c.x), py(c.y))
+            ctx.stroke()
+          }
+        }
 
         // 连杆
         ctx.strokeStyle = 'rgba(60, 66, 90, 0.45)'
@@ -132,17 +152,24 @@ export default function CanvasView({ target, recon, bounds, coeffs, dc, n, epicy
       }
     }
 
-    // 主循环：描绘动画完成后若 epicycles 开启则持续旋转
+    // 主循环：描绘动画 → epicycles 相位推进（暂停时只重绘不推进）
     function loop(ts) {
-      const { epicycles: epi } = propsRef.current
+      const { epicycles: epi, paused: pse, speed: spd } = propsRef.current
       if (progressRef.current < 1) {
-        // 描绘阶段
         progressRef.current = Math.min(1, (ts - startRef.current) / TRACE_DURATION_MS)
-      } else if (epi) {
-        // epicycles 相位推进
+      } else if (epi && !pse) {
         if (!lastTsRef.current) lastTsRef.current = ts
         const dt = ts - lastTsRef.current
-        tRef.current = (tRef.current + dt / ORBIT_PERIOD_MS) % 1
+        tRef.current = (tRef.current + (dt * spd) / BASE_ORBIT_MS) % 1
+        // 记录笔尖位置到拖尾
+        const { coeffs: cfs, dc: d0, n: nn } = propsRef.current
+        if (cfs && d0) {
+          const chain = epicycleChain(cfs, d0, nn, tRef.current)
+          const tip = chain[chain.length - 1]
+          trailRef.current.push({ x: tip.x, y: tip.y })
+          const MAX_TRAIL = Math.round(320 * spd) + 40
+          if (trailRef.current.length > MAX_TRAIL) trailRef.current.shift()
+        }
       }
       lastTsRef.current = ts
       draw()
@@ -153,6 +180,8 @@ export default function CanvasView({ target, recon, bounds, coeffs, dc, n, epicy
     function replay() {
       progressRef.current = 0
       startRef.current = performance.now()
+      trailRef.current = []
+      tRef.current = 0
       cancelAnimationFrame(rafRef.current)
       rafRef.current = requestAnimationFrame(loop)
     }

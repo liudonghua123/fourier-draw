@@ -340,6 +340,108 @@ body {
 .epi-label { font-size: 0.8rem; color: var(--ink-dim); }
 .epi-hint { margin-top: 10px; }
 
+/* ---------- epicycles 控制条 ---------- */
+.epi-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--panel-border);
+}
+.epi-play {
+  min-width: 84px;
+  font-weight: 600;
+}
+.epi-speed {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.8rem;
+}
+.epi-speed input {
+  flex: 1;
+  appearance: none;
+  height: 5px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to right,
+    var(--gold) var(--pct),
+    rgba(60, 66, 90, 0.15) var(--pct)
+  );
+  cursor: pointer;
+}
+.epi-speed input::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--gold);
+  box-shadow: 0 1px 6px rgba(232, 161, 63, 0.4);
+}
+.epi-speed-val { font-size: 0.82rem; font-weight: 700; min-width: 36px; }
+
+/* ---------- 系数谱 v2 ---------- */
+.spectrum-wrap { display: flex; flex-direction: column; flex: 1; }
+.spectrum-stat { margin-bottom: 12px; }
+.spectrum-energy-label { font-size: 0.82rem; margin-bottom: 6px; }
+.spectrum-energy-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(60, 66, 90, 0.12);
+  overflow: hidden;
+}
+.spectrum-energy-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(to right, var(--gold), var(--accent));
+}
+.spectrum {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  min-height: 160px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.5);
+}
+.spectrum .bar {
+  flex: 1;
+  min-height: 3px;
+  min-width: 4px;
+  border-radius: 2px 2px 0 0;
+  background: rgba(60, 66, 90, 0.22);
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.25s, box-shadow 0.25s;
+}
+.spectrum .bar:hover { background: rgba(60, 66, 90, 0.45); }
+.spectrum .bar.on {
+  background: linear-gradient(to top, var(--gold), var(--accent));
+}
+.spectrum .bar.on:hover {
+  box-shadow: 0 0 0 2px rgba(232, 84, 63, 0.3);
+}
+.spectrum .bar.edge {
+  box-shadow: 0 0 0 2px var(--accent);
+  border-radius: 2px;
+}
+.spectrum-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  padding: 0 10px;
+  font-size: 0.68rem;
+  color: var(--ink-dim);
+}
+.spectrum-legend { margin-top: 12px; }
+
 /* ---------- 频谱 ---------- */
 .side-panel { display: flex; flex-direction: column; }
 .spectrum {
