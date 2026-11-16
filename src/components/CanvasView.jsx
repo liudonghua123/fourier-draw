@@ -130,7 +130,7 @@ export default function CanvasView({
       tctx.lineCap = 'round'
       const px = (x) => W / 2 + (x - cx) * S
       const py = (y) => H / 2 + (y - cy) * S
-      while (drawnCountRef.current < path.length) {
+      while (drawnCountRef.current < path.length - 1) {
         const i = drawnCountRef.current
         const a = path[i]
         const c = path[i + 1]
@@ -287,7 +287,8 @@ export default function CanvasView({
     // 主循环：非动画模式做描绘进度；动画模式推进相位并按固定
     // 空间步长把笔尖中间点写入累积轨迹（暂停时只重绘不推进）
     function loop(ts) {
-      const { epicycles: epi, paused: pse, speed: spd, coeffs: cfs, dc: d0, n: nn } = propsRef.current
+      try {
+        const { epicycles: epi, paused: pse, speed: spd, coeffs: cfs, dc: d0, n: nn } = propsRef.current
       if (!epi) {
         if (progressRef.current < 1) {
           if (!startRef.current) startRef.current = ts
@@ -317,11 +318,18 @@ export default function CanvasView({
           const tip = ch[ch.length - 1]
           path.push({ x: tip.x, y: tip.y, t: tt })
         }
-        while (path.length > MAX_PATH) path.shift()
+        while (path.length > MAX_PATH) {
+          path.shift()
+          if (drawnCountRef.current > 0) drawnCountRef.current--
+        }
       }
       lastTsRef.current = ts
       draw(ts)
       rafRef.current = requestAnimationFrame(loop)
+      } catch (err) {
+        console.error('[CanvasView] frame error:', err)
+        rafRef.current = requestAnimationFrame(loop) // 单帧异常不杀循环
+      }
     }
 
     // 重置：清轨迹与成品曲线、相位归零、重新描绘（暂停状态保持不变）
