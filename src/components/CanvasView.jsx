@@ -4,15 +4,20 @@ import { epicycleChain } from '../lib/epicycles'
 /**
  * 主画布三合一：
  * 1. 灰色虚线 = 原轮廓
- * 2. 红色曲线 = 前 n 项傅里叶重建（n 变化时快速重描）
- * 3. epicycles 模式 = 旋转圆环连杆动画 + 笔尖拖尾渐隐线（速度可调、可暂停、可重置）
+ * 2. 红色曲线 = 前 n 项傅里叶重建（非动画模式下按进度描绘）
+ * 3. epicycles 模式 = 旋转圆环连杆动画 + 笔尖累积轨迹
  *
- * 动画循环生命周期绑定 imageKey（换图时重启）；
- * n / speed / paused 变化只影响每帧绘制内容，不重启循环 —— 暂停不会被 n 滑杆打断。
- * resetToken 变化时手动重置（清拖尾、相位归零、重新描绘）。
+ * epicycles 渲染原则：
+ * - 轨迹是"累积路径"而非渐隐尾巴：笔尖逐点画出，画满一圈正好
+ *   就是完整的重建曲线（与目标幽灵线重合），直观呈现"点连成线"
+ * - 每帧按固定空间步长（相位 ≤ SUBSTEP）细分插入中间点，
+ *   保证任何速度/帧率下画出的线形状完全一致 —— 速度只改变画得多快
+ * - n 变化或重置时清空轨迹，从起点重画
  */
 const TRACE_DURATION_MS = 700
 const BASE_ORBIT_MS = 16000 // speed=1 时笔尖走一圈的时长
+const SUBSTEP = 1 / 900     // 轨迹相邻两点的最大相位步长（与速度无关）
+const MAX_PATH = 1024       // 一圈轨迹点数上限
 
 export default function CanvasView({
   target, recon, bounds, coeffs, dc, n,
@@ -24,13 +29,25 @@ export default function CanvasView({
   const rafRef = useRef(0)
   const tRef = useRef(0)          // epicycles 相位 0~1
   const lastTsRef = useRef(0)
-  const trailRef = useRef([])     // 笔尖拖尾 [{x, y}] 归一化坐标
+  const pathRef = useRef([])      // 当前圈笔尖累积轨迹（渐变进行中）
+  const doneRef = useRef(null)    // 画满一圈后的成品曲线（常驻红色实线）
   const replayRef = useRef(null)  // 暴露给 resetToken effect 的重置函数
   // 最新 props 存 ref，动画循环与 ResizeObserver 都能读到当前值
   const propsRef = useRef({ target, recon, bounds, coeffs, dc, n, epicycles, speed, paused })
   useEffect(() => {
     propsRef.current = { target, recon, bounds, coeffs, dc, n, epicycles, speed, paused }
   }, [target, recon, bounds, coeffs, dc, n, epicycles, speed, paused])
+
+  // n 变化：曲线形状变了，清空轨迹从起点重画（不影响暂停状态本身）
+  const nRef = useRef(n)
+  useEffect(() => {
+    if (nRef.current !== n) {
+      nRef.current = n
+      pathRef.current = []
+      doneRef.current = null
+      tRef.current = 0
+    }
+  }, [n])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -75,47 +92,99 @@ export default function CanvasView({
       ctx.stroke()
       ctx.restore()
 
-      // 重建曲线（按进度描绘）
-      const prog = progressRef.current
-      const count = Math.max(2, Math.floor(rcn.length * prog))
-      ctx.save()
-      ctx.strokeStyle = '#e8543f'
-      ctx.lineWidth = 2.4
-      ctx.lineJoin = 'round'
-      ctx.lineCap = 'round'
-      ctx.shadowColor = 'rgba(232, 84, 63, 0.35)'
-      ctx.shadowBlur = 8
-      ctx.beginPath()
-      for (let i = 0; i < count; i++) {
-        const p = rcn[i]
-        if (i === 0) ctx.moveTo(px(p.x), py(p.y))
-        else ctx.lineTo(px(p.x), py(p.y))
-      }
-      if (prog >= 1) ctx.closePath()
-      ctx.stroke()
-      ctx.restore()
-
-      // epicycles：拖尾 → 圆环 → 连杆 → 笔尖
-      if (epi && cfs && d0 && nn >= 1) {
-        const chain = epicycleChain(cfs, d0, nn, tRef.current)
+      if (!epi) {
+        // 非动画模式：红色重建曲线按进度描绘
+        const prog = progressRef.current
+        const count = Math.max(2, Math.floor(rcn.length * prog))
         ctx.save()
+        ctx.strokeStyle = '#e8543f'
+        ctx.lineWidth = 2.4
+        ctx.lineJoin = 'round'
+        ctx.lineCap = 'round'
+        ctx.shadowColor = 'rgba(232, 84, 63, 0.35)'
+        ctx.shadowBlur = 8
+        ctx.beginPath()
+        for (let i = 0; i < count; i++) {
+          const p = rcn[i]
+          if (i === 0) ctx.moveTo(px(p.x), py(p.y))
+          else ctx.lineTo(px(p.x), py(p.y))
+        }
+        if (prog >= 1) ctx.closePath()
+        ctx.stroke()
+        ctx.restore()
+        if (prog < 1 && count > 0) {
+          const p = rcn[count - 1]
+          ctx.save()
+          ctx.fillStyle = '#ffb03a'
+          ctx.beginPath()
+          ctx.arc(px(p.x), py(p.y), 4.5, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.restore()
+        }
+      } else if (cfs && d0 && nn >= 1) {
+        // epicycles 模式
+        const chain = epicycleChain(cfs, d0, nn, tRef.current)
 
-        // 笔尖拖尾（渐隐金线）：形象表示"点连成线"
-        const trail = trailRef.current
-        if (trail.length > 2) {
-          for (let i = 1; i < trail.length; i++) {
-            const a = trail[i - 1]
-            const c = trail[i]
-            const alpha = (i / trail.length) * 0.9
-            ctx.strokeStyle = `rgba(255, 176, 58, ${alpha})`
-            ctx.lineWidth = 1.2 + (i / trail.length) * 2
+        // 目标幽灵线：完整重建曲线（淡红虚线），笔尖轨迹最终应与它重合
+        ctx.save()
+        ctx.strokeStyle = 'rgba(232, 84, 63, 0.28)'
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([3, 4])
+        ctx.beginPath()
+        for (let i = 0; i < rcn.length; i++) {
+          const p = rcn[i]
+          if (i === 0) ctx.moveTo(px(p.x), py(p.y))
+          else ctx.lineTo(px(p.x), py(p.y))
+        }
+        ctx.closePath()
+        ctx.stroke()
+        ctx.restore()
+
+        // 成品曲线：画满一圈的轨迹转为常驻红色实线（= 最终曲线）
+        const done = doneRef.current
+        if (done && done.length > 1) {
+          ctx.save()
+          ctx.strokeStyle = '#e8543f'
+          ctx.lineWidth = 2.4
+          ctx.lineJoin = 'round'
+          ctx.lineCap = 'round'
+          ctx.shadowColor = 'rgba(232, 84, 63, 0.35)'
+          ctx.shadowBlur = 8
+          ctx.beginPath()
+          for (let i = 0; i < done.length; i++) {
+            const p = done[i]
+            if (i === 0) ctx.moveTo(px(p.x), py(p.y))
+            else ctx.lineTo(px(p.x), py(p.y))
+          }
+          ctx.closePath()
+          ctx.stroke()
+          ctx.restore()
+        }
+
+        // 笔尖累积轨迹：金 → 红渐变，画满一圈转为成品曲线
+        const path = pathRef.current
+        if (path.length > 1) {
+          ctx.save()
+          ctx.lineJoin = 'round'
+          ctx.lineCap = 'round'
+          for (let i = 1; i < path.length; i++) {
+            const a = path[i - 1]
+            const c = path[i]
+            const f = i / path.length
+            const r = Math.round(255 - 23 * f)   // 255 → 232
+            const g = Math.round(176 - 92 * f)   // 176 → 84
+            const bl = Math.round(58 + 5 * f)    // 58 → 63
+            ctx.strokeStyle = `rgba(${r}, ${g}, ${bl}, ${(0.35 + f * 0.6).toFixed(3)})`
+            ctx.lineWidth = 1.2 + f * 1.6
             ctx.beginPath()
             ctx.moveTo(px(a.x), py(a.y))
             ctx.lineTo(px(c.x), py(c.y))
             ctx.stroke()
           }
+          ctx.restore()
         }
 
+        ctx.save()
         // 连杆
         ctx.strokeStyle = 'rgba(60, 66, 90, 0.45)'
         ctx.lineWidth = 1
@@ -150,50 +219,55 @@ export default function CanvasView({
         ctx.arc(px(tip.x), py(tip.y), 5, 0, Math.PI * 2)
         ctx.fill()
         ctx.restore()
-      } else if (prog < 1 && count > 0) {
-        // 非动画模式：保留描绘光标
-        const p = rcn[count - 1]
-        ctx.save()
-        ctx.fillStyle = '#ffb03a'
-        ctx.beginPath()
-        ctx.arc(px(p.x), py(p.y), 4.5, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.restore()
       }
     }
 
     const startRef = { current: 0 }
 
-    // 主循环：描绘动画 → epicycles 相位推进（暂停时只重绘不推进、不记拖尾）
+    // 主循环：非动画模式做描绘进度；动画模式推进相位并按固定
+    // 空间步长把笔尖中间点写入累积轨迹（暂停时只重绘不推进）
     function loop(ts) {
-      const { epicycles: epi, paused: pse, speed: spd } = propsRef.current
-      if (progressRef.current < 1) {
-        if (!startRef.current) startRef.current = ts
-        progressRef.current = Math.min(1, (ts - startRef.current) / TRACE_DURATION_MS)
-      } else if (epi && !pse) {
-        if (!lastTsRef.current) lastTsRef.current = ts
-        const dt = ts - lastTsRef.current
-        tRef.current = (tRef.current + (dt * spd) / BASE_ORBIT_MS) % 1
-        // 记录笔尖位置到拖尾（暂停时不记录，保持画面静止）
-        const { coeffs: cfs, dc: d0, n: nn } = propsRef.current
-        if (cfs && d0) {
-          const chain = epicycleChain(cfs, d0, nn, tRef.current)
-          const tip = chain[chain.length - 1]
-          trailRef.current.push({ x: tip.x, y: tip.y })
-          const MAX_TRAIL = Math.round(320 * spd) + 40
-          if (trailRef.current.length > MAX_TRAIL) trailRef.current.shift()
+      const { epicycles: epi, paused: pse, speed: spd, coeffs: cfs, dc: d0, n: nn } = propsRef.current
+      if (!epi) {
+        if (progressRef.current < 1) {
+          if (!startRef.current) startRef.current = ts
+          progressRef.current = Math.min(1, (ts - startRef.current) / TRACE_DURATION_MS)
         }
+      } else if (!pse && cfs && d0) {
+        if (!lastTsRef.current) lastTsRef.current = ts
+        const dt = Math.min(100, ts - lastTsRef.current) // 后台标签页回来时不产生巨帧
+        const prevT = tRef.current
+        let nextT = prevT + (dt * spd) / BASE_ORBIT_MS
+        const wrapped = nextT >= 1
+        nextT %= 1
+        tRef.current = nextT
+        if (wrapped) {
+          // 画满一圈：当前轨迹转为成品曲线常驻，重新开始下一圈
+          doneRef.current = pathRef.current.slice()
+          pathRef.current = []
+        }
+        // 细分到固定空间步长：轨迹形状与速度/帧率无关
+        const delta = wrapped ? nextT + (1 - prevT) : nextT - prevT
+        const steps = Math.max(1, Math.ceil(delta / SUBSTEP))
+        for (let i = 1; i <= steps; i++) {
+          const tt = (prevT + (delta * i) / steps) % 1
+          const ch = epicycleChain(cfs, d0, nn, tt)
+          const tip = ch[ch.length - 1]
+          pathRef.current.push({ x: tip.x, y: tip.y })
+        }
+        while (pathRef.current.length > MAX_PATH) pathRef.current.shift()
       }
       lastTsRef.current = ts
       draw()
       rafRef.current = requestAnimationFrame(loop)
     }
 
-    // 重置：清拖尾、相位归零、重新描绘（暂停状态保持不变）
+    // 重置：清轨迹与成品曲线、相位归零、重新描绘（暂停状态保持不变）
     function replay() {
       progressRef.current = 0
       startRef.current = 0
-      trailRef.current = []
+      pathRef.current = []
+      doneRef.current = null
       tRef.current = 0
       lastTsRef.current = 0
     }
